@@ -1,1 +1,9 @@
-# Add your project dependencies here
+# Web Interface
+streamlit==1.31.0
+
+# Mathematical and Scientific Logic
+numpy==1.26.4
+scikit-fuzzy==0.4.2
+
+# Utilities
+pandas==2.2.0
