@@ -1,9 +1,10 @@
-# Web Interface
-streamlit==1.31.0
+# Core dependencies
+streamlit>=1.30.0
+scikit-fuzzy>=0.5.0
+pandas>=2.0.0
+numpy>=1.24.0
+altair>=5.0.0
 
-# Mathematical and Scientific Logic
-numpy==1.26.4
-scikit-fuzzy==0.4.2
-
-# Utilities
-pandas==2.2.0
+# Required by scikit-fuzzy
+scipy>=1.10.0
+networkx>=3.0
