@@ -1,53 +1,113 @@
-# Multi-Disease Fuzzy Expert System 🩺
+# Medical Diagnosis Using Fuzzy Inference
 
-A modular medical diagnostic application using Fuzzy Logic to assess risks across multiple disease domains. Built with Python, Streamlit, and Scikit-Fuzzy.
+A modular medical diagnostic application using **Fuzzy Logic** to assess health risks across multiple disease domains. Built with Python, Streamlit, and scikit-fuzzy.
 
-## 🌟 Project Overview
-This system provides a unified interface for four distinct medical domains. By utilizing **Fuzzy Inference Systems (FIS)**, the application can handle the "gray areas" of medical symptoms better than traditional binary logic.
+## Overview
 
-### Disease Modules:
-* **Respiratory:** Logic focusing on SpO2, cough frequency, and breath shortness.
-* **Heart:** Cardiovascular risk based on BP, cholesterol, and heart rate.
-* **Diabetes:** Metabolic health using glucose levels and BMI.
-* **Infectious Disease:** Assessment based on temperature, fatigue, and exposure.
+This system provides a unified interface for four distinct medical domains. By utilizing **Fuzzy Inference Systems (FIS)**, the application handles the inherent uncertainty in medical symptoms better than traditional binary logic—capturing the "gray areas" of real-world diagnosis.
 
----
+## Disease Modules
 
-## 🏗️ Technical Architecture
-We use a **Decoupled Architecture**. The UI (`main.py`) acts as a "Renderer" while each folder in `modules/` acts as an independent "Logic Provider."
+| Module | Inputs | Output |
+|--------|--------|--------|
+| **Heart** | Age, Systolic BP, Cholesterol, Heart Rate, Smoking, Family History | Cardiovascular risk score |
+| **Diabetes** | Glucose, BMI, Age, Insulin, Diabetes Pedigree | Diabetes risk score |
+| **Respiratory** | Age + 9 symptom severity scores (cough, breathlessness, fatigue, etc.) | Disease classification (Asthma, TB, Pneumonia) |
+| **Infectious** | Age, Temperature (°F), Duration, Cough, Diarrhea, Breathing Difficulty | Condition classification (Viral Fever, Flu, Gastro, High-Risk) |
 
+Each module uses CSV-calibrated fuzzy membership functions derived from real medical datasets.
 
-## 🚀 Setup & Installation
+## Project Structure
 
-### 👨‍🏫 For General Users / Evaluators
-1. **Clone the repository:**
-   git clone https://github.com/fixaro-ez/Medical-Diagnosis-Using-Fuzzy-Inference.git
+```
+Medical-Diagnosis-Using-Fuzzy-Inference/
+├── main.py                    # Streamlit UI application
+├── requirements.txt           # Python dependencies
+├── modules/
+│   ├── template_engine.py     # Shared engine template
+│   ├── heart/
+│   │   ├── engine.py          # Heart disease fuzzy logic
+│   │   └── data/heart.csv     # Calibration dataset
+│   ├── diabetes/
+│   │   ├── engine.py          # Diabetes fuzzy logic
+│   │   └── data/diabetes.csv  # Calibration dataset
+│   ├── respiratory/
+│   │   ├── engine.py          # Respiratory disease fuzzy logic
+│   │   └── respiratory symptoms and treatment.csv
+│   └── infectious/
+│       ├── engine.py          # Infectious disease fuzzy logic
+│       └── data/infectious.csv# Calibration dataset
+└── README.md
+```
 
-2. **Create a virtual environment:**
-     python -m venv venv
-3. **Switching to a virtual environment:**
-    * .\venv\Scripts\Activate.ps1 (for powershell)
-    * .\venv\Scripts\activate.bat (for command prompt)
-    * source ./venv/Scripts/activate (for bash)
+## Technical Architecture
 
-4. **Install Dependencies:**
-    pip install -r requirements.txt
+The application uses a **Decoupled Architecture**:
 
-5. **Launch the Application:**
-    streamlit run main.py    
+- **UI Layer** (`main.py`): Streamlit-based renderer that dynamically builds input forms based on each module's `get_inputs()` definition
+- **Logic Providers** (`modules/*/engine.py`): Independent fuzzy inference engines exposing:
+  - `get_inputs()` → List of input field definitions
+  - `run_inference(user_data)` → Risk assessment results
 
-### 🛠 Collaborator Workflow (For Team Members)
-    
-1. **Create a Feature Branch:**
-   Never push directly to main. Create a branch for your specific disease:
- **git checkout -b [feature-name]**
+This design allows adding new disease modules without modifying the main application.
 
-2. **Daily Sync (Important):** 
+## Setup & Installation
 
- ##### While on your feature branch: **git pull origin main**
+### Prerequisites
+- Python 3.9+
+- pip
 
+### Quick Start
 
-3. **Write Code on your branch**
+```bash
+# Clone the repository
+git clone https://github.com/fixaro-ez/Medical-Diagnosis-Using-Fuzzy-Inference.git
+cd Medical-Diagnosis-Using-Fuzzy-Inference
 
-4. **Push Changes to to your branch:**   
-   **git push origin [feature-name]**
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+# Windows CMD:
+.\venv\Scripts\activate.bat
+# Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
+streamlit run main.py
+```
+
+The app will open at `http://localhost:8501`
+
+## Usage
+
+1. Select a disease module from the sidebar
+2. Adjust input parameters using sliders and dropdowns
+3. View the **Diagnosis** tab for risk assessment
+4. Check **Explanation** tab for fuzzy logic reasoning
+5. Explore **Input Impact** tab to see how each variable contributes
+
+## Dependencies
+
+- **streamlit** – Web UI framework
+- **scikit-fuzzy** – Fuzzy logic library
+- **pandas** – Data manipulation
+- **numpy** – Numerical computing
+- **altair** – Visualization
+
+## Contributing
+
+1. Create a feature branch: `git checkout -b feature-name`
+2. Sync with main: `git pull origin main`
+3. Make changes and test
+4. Push to your branch: `git push origin feature-name`
+5. Open a Pull Request
+
+## License
+
+See [LICENSE](LICENSE) for details.
