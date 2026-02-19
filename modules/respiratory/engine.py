@@ -233,6 +233,8 @@ def run_inference(user_data: Dict) -> Dict:
             "risk_level": "Low",
             "recommendation": "No symptoms reported. Continue regular health monitoring.",
             "reasoning": "No respiratory symptoms were indicated.",
+            "rule_trace": [],
+            "plain_summary": "No respiratory risk pattern detected because no symptoms were entered.",
         }
 
     results = _fuzzy_disease_inference(age, symptom_scores)
@@ -260,9 +262,34 @@ def run_inference(user_data: Dict) -> Dict:
             f" Also consider {results[1]['disease']} ({results[1]['percentage']:.1f}%)."
         )
 
+    all_scores = {r["disease"]: round(r["percentage"], 1) for r in results}
+
+    top_weights = KNOWLEDGE_BASE["diseases"][top["disease"]]["weights"]
+    driver_rows = []
+    for symptom, weight in top_weights.items():
+        severity = _defuzzify_severity(symptom_scores.get(symptom, 0.0))
+        strength = float(weight * severity)
+        if strength > 0:
+            driver_rows.append(
+                {
+                    "rule": f"IF {symptom.replace('_', ' ')} is elevated THEN {top['disease']} probability increases",
+                    "strength": round(min(1.0, strength), 2),
+                }
+            )
+    driver_rows.sort(key=lambda item: item["strength"], reverse=True)
+    rule_trace = driver_rows[:4]
+
+    plain_summary = (
+        f"Respiratory assessment suggests {top['disease']} as the leading condition "
+        f"with overall {level.lower()} risk at {risk_pct:.1f}%."
+    )
+
     return {
         "risk_percentage": risk_pct,
         "risk_level": level,
         "recommendation": recommendation,
         "reasoning": reasoning,
+        "all_scores": all_scores,
+        "rule_trace": rule_trace,
+        "plain_summary": plain_summary,
     }

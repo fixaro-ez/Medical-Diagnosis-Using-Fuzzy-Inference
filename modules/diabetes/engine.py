@@ -165,6 +165,10 @@ def _label_from_membership(value: float, antecedent: ctrl.Antecedent) -> str:
     return max(memberships, key=memberships.get)
 
 
+def _membership_strength(value: float, antecedent: ctrl.Antecedent, label: str) -> float:
+    return float(fuzz.interp_membership(antecedent.universe, antecedent[label].mf, value))
+
+
 def _risk_level_from_score(score: float) -> str:
     if score < 34:
         return "Low"
@@ -226,10 +230,44 @@ def run_inference(user_data: Dict) -> Dict:
         f"and pedigree risk is {pedigree_label}. Combined fuzzy rules indicate a {risk_level.lower()} risk."
     )
 
+    glucose_high = _membership_strength(values["glucose"], antecedents["glucose"], "high")
+    glucose_medium = _membership_strength(values["glucose"], antecedents["glucose"], "medium")
+    bmi_high = _membership_strength(values["bmi"], antecedents["bmi"], "high")
+    insulin_high = _membership_strength(values["insulin"], antecedents["insulin"], "high")
+    pedigree_high = _membership_strength(values["diabetes_pedigree"], antecedents["diabetes_pedigree"], "high")
+    age_high = _membership_strength(values["age"], antecedents["age"], "high")
+
+    rule_trace = [
+        {
+            "rule": "IF glucose is high THEN diabetes risk is high",
+            "strength": round(glucose_high, 2),
+        },
+        {
+            "rule": "IF glucose is medium AND BMI is high THEN diabetes risk is high",
+            "strength": round(float(min(glucose_medium, bmi_high)), 2),
+        },
+        {
+            "rule": "IF glucose is medium AND insulin is high THEN diabetes risk is high",
+            "strength": round(float(min(glucose_medium, insulin_high)), 2),
+        },
+        {
+            "rule": "IF glucose is medium AND pedigree is high AND age is high THEN risk is high",
+            "strength": round(float(min(glucose_medium, pedigree_high, age_high)), 2),
+        },
+    ]
+    rule_trace = [item for item in rule_trace if item["strength"] > 0]
+
+    plain_summary = (
+        f"Diabetes risk is {risk_level.lower()} at {round(risk_score, 1)}%. "
+        f"Glucose and metabolic indicators are the primary contributors in this profile."
+    )
+
     result = {
         "risk_percentage": round(risk_score, 1),
         "risk_level": risk_level,
         "recommendation": _recommendation(risk_level),
         "reasoning": reasoning,
+        "rule_trace": rule_trace,
+        "plain_summary": plain_summary,
     }
     return result

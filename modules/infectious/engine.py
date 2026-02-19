@@ -371,10 +371,58 @@ def run_inference(user_inputs: dict) -> dict:
         else:
             level = "High"
 
+    if level == "Low":
+        recommendation = "Supportive care and monitoring are recommended if symptoms persist."
+    elif level == "Medium":
+        recommendation = "Consider clinical review and symptomatic treatment based on progression."
+    else:
+        recommendation = "Seek urgent medical evaluation due to concerning infectious pattern."
+
+    cough_value = str(user_inputs.get("cough", "None"))
+    diarrhea_value = str(user_inputs.get("diarrhea", "None"))
+    breath_value = str(user_inputs.get("diff_breath", "None"))
+    reasoning = (
+        f"Temperature {temp_c:.1f}°C over {duration_days:.1f} day(s) with cough {cough_value}, "
+        f"diarrhea {diarrhea_value}, and breathing difficulty {breath_value} produced the highest score for {top_name}."
+    )
+
+    cough_strength = LEVEL_MAP.get(cough_value, 0.0) / 9.0
+    diarrhea_strength = LEVEL_MAP.get(diarrhea_value, 0.0) / 9.0
+    breath_strength = LEVEL_MAP.get(breath_value, 0.0) / 9.0
+    fever_strength = float(np.clip((temp_c - 37.0) / 3.0, 0.0, 1.0))
+
+    rule_trace = [
+        {
+            "rule": "IF temperature is very high THEN high-risk fever increases",
+            "strength": round(fever_strength, 2),
+        },
+        {
+            "rule": "IF breathing difficulty is moderate/severe THEN high-risk fever increases",
+            "strength": round(breath_strength, 2),
+        },
+        {
+            "rule": "IF high fever with strong cough THEN flu-like illness increases",
+            "strength": round(float(min(fever_strength, cough_strength)), 2),
+        },
+        {
+            "rule": "IF diarrhea is moderate/severe THEN gastroenteritis increases",
+            "strength": round(diarrhea_strength, 2),
+        },
+    ]
+    rule_trace = [item for item in rule_trace if item["strength"] > 0]
+
+    plain_summary = (
+        f"Infectious assessment indicates {top_name} with {level.lower()} risk at {round(top_score, 1)}%."
+    )
+
     return {
         "risk_level": f"{top_name} ({level})",
         "risk_percentage": round(top_score, 1),
         "all_scores": {k: round(v, 1) for k, v in adjusted_scores.items()},
         "red_flag": adjusted_scores["High-Risk Fever"] >= 60,
         "high_risk_score": round(adjusted_scores["High-Risk Fever"], 1),
+        "recommendation": recommendation,
+        "reasoning": reasoning,
+        "rule_trace": rule_trace,
+        "plain_summary": plain_summary,
     }

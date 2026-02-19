@@ -232,10 +232,33 @@ def run_inference(user_data):
 		else:
 			reasons.append("Multiple inputs trended higher, pushing the risk upward.")
 
+	rule_trace = [
+		{
+			"rule": "IF systolic BP is high AND cholesterol is high THEN cardiovascular risk is high",
+			"strength": round(float(min(bp_high, chol_high)), 2),
+		},
+		{
+			"rule": "IF age is high AND systolic BP is high THEN cardiovascular risk is high",
+			"strength": round(float(min(age_high, bp_high)), 2),
+		},
+		{
+			"rule": "IF smoking is yes AND family history is yes THEN cardiovascular risk is high",
+			"strength": round(float(min(smoking_high, fh_high)), 2),
+		},
+	]
+	rule_trace = [item for item in rule_trace if item["strength"] > 0]
+
+	plain_summary = (
+		f"Heart risk is {risk_level.lower()} at {round(risk_value, 1)}%. "
+		f"Main drivers include blood pressure, cholesterol, and lifestyle/family history patterns."
+	)
+
 	result = {
 		"risk_percentage": round(risk_value, 1),
 		"risk_level": risk_level,
 		"recommendation": recommendation,
 		"reasoning": " ".join(reasons),
+		"rule_trace": rule_trace,
+		"plain_summary": plain_summary,
 	}
 	return result

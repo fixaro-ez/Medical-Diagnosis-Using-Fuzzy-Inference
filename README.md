@@ -8,12 +8,12 @@ This system provides a unified interface for four distinct medical domains. By u
 
 ## Disease Modules
 
-| Module | Inputs | Output |
-|--------|--------|--------|
-| **Heart** | Age, Systolic BP, Cholesterol, Heart Rate, Smoking, Family History | Cardiovascular risk score |
-| **Diabetes** | Glucose, BMI, Age, Insulin, Diabetes Pedigree | Diabetes risk score |
-| **Respiratory** | Age + 9 symptom severity scores (cough, breathlessness, fatigue, etc.) | Disease classification (Asthma, TB, Pneumonia) |
-| **Infectious** | Age, Temperature (°F), Duration, Cough, Diarrhea, Breathing Difficulty | Condition classification (Viral Fever, Flu, Gastro, High-Risk) |
+| Module          | Inputs                                                                 | Output                                                         |
+| --------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Heart**       | Age, Systolic BP, Cholesterol, Heart Rate, Smoking, Family History     | Cardiovascular risk score                                      |
+| **Diabetes**    | Glucose, BMI, Age, Insulin, Diabetes Pedigree                          | Diabetes risk score                                            |
+| **Respiratory** | Age + 9 symptom severity scores (cough, breathlessness, fatigue, etc.) | Disease classification (Asthma, TB, Pneumonia)                 |
+| **Infectious**  | Age, Temperature (°F), Duration, Cough, Diarrhea, Breathing Difficulty | Condition classification (Viral Fever, Flu, Gastro, High-Risk) |
 
 Each module uses CSV-calibrated fuzzy membership functions derived from real medical datasets.
 
@@ -54,6 +54,7 @@ This design allows adding new disease modules without modifying the main applica
 ## Setup & Installation
 
 ### Prerequisites
+
 - Python 3.9+
 - pip
 
@@ -86,11 +87,32 @@ The app will open at `http://localhost:8501`
 
 ## Usage
 
-1. Select a disease module from the sidebar
-2. Adjust input parameters using sliders and dropdowns
-3. View the **Diagnosis** tab for risk assessment
-4. Check **Explanation** tab for fuzzy logic reasoning
-5. Explore **Input Impact** tab to see how each variable contributes
+1. Log in with a doctor/admin account
+2. Select a disease module from the Diagnosis page
+3. Enter patient profile and symptom inputs, then run diagnosis
+4. Review Explanation (rule trace), Input Impact, and Comparison tabs
+5. Save the case to history and reopen it later from Case History
+
+## Added Clinical Workflow Features
+
+- **Doctor Authentication** using `streamlit-authenticator`
+- **Case Management** with persistent save/load to CSV storage
+- **Comparative Analysis** against historical anonymized averages
+- **Rule Tracing** showing strongest activated fuzzy rules per diagnosis
+- **Plain-Language Summary** for each diagnosis result
+- **Patient Profile View** with diagnosis timeline and editable doctor notes
+- **Admin Dashboard** with aggregate anonymized system metrics
+
+## Login and Storage
+
+On first run, the app creates `app_data/auth_config.yaml` and `app_data/cases.csv`.
+
+Default users:
+
+- **Admin:** username `admin`, password `admin123`
+- **Doctor:** username `doctor`, password `doctor123`
+
+Change these credentials in `app_data/auth_config.yaml` after first launch.
 
 ## Dependencies
 

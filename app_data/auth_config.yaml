@@ -1,0 +1,13 @@
+credentials:
+  usernames:
+    doctor:
+      password: $2b$12$BqOw2AOIR47h5xhnAWK0j.f3.KSZvqzNJFwiVHVBDLjZLNVIlwKgG
+      email: doctor@hospital.local
+      name: Doctor User
+      role: doctor
+cookie:
+  expiry_days: 1
+  key: medical_diagnosis_cookie_key
+  name: medical_diagnosis_auth
+preauthorized:
+  emails: []
