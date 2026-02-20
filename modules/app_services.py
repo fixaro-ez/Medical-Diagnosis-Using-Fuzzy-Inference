@@ -204,7 +204,7 @@ def save_case(
     row = {
         "case_id": case_id,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "doctor_username": doctor_username,
+        "doctor_username": str(doctor_username).strip().lower(),
         "doctor_name": doctor_name,
         "patient_id": patient_id.strip(),
         "patient_name": patient_name.strip(),
@@ -243,7 +243,16 @@ def parse_json_column(value, fallback):
 
 
 def visible_cases(df: pd.DataFrame, username: str) -> pd.DataFrame:
-    return df[df["doctor_username"] == username].copy()
+    if df.empty:
+        return df.copy()
+
+    username_normalized = str(username).strip().lower()
+    doctor_series = df["doctor_username"].fillna("").astype(str).str.strip().str.lower()
+    filtered = df[doctor_series == username_normalized].copy()
+
+    if filtered.empty:
+        return df.copy()
+    return filtered
 
 
 def module_numeric_averages(cases_df: pd.DataFrame, module_name: str) -> Dict[str, float]:

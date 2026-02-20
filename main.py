@@ -10,7 +10,6 @@ import streamlit as st
 
 from modules.app_services import (
     load_cases,
-    module_numeric_averages,
     parse_json_column,
     require_authentication,
     save_case,
@@ -307,75 +306,64 @@ def _render_result_block(selected, result, input_schema, user_inputs):
         st.error("Red flag detected: high-risk infectious pattern. Please seek urgent medical attention.")
 
 
-def _render_comparison(selected, user_inputs, all_cases):
-    st.subheader("Comparative Analysis (Anonymized)")
-    if all_cases.empty:
-        st.info("No historical cases yet. Save more patient sessions to unlock comparison analytics.")
-        return
-
-    module_cases = all_cases[all_cases["disease_module"] == selected]
-    if module_cases.empty:
-        st.info("No historical cases found for the selected disease module.")
-        return
-
-    cohort_avg_risk = float(module_cases["risk_percentage"].astype(float).mean())
-    current_risk = float(st.session_state.get("last_result", {}).get("risk_percentage", 0.0))
-
-    col1, col2 = st.columns(2)
-    col1.metric("Current Case Risk", f"{current_risk:.1f}%")
-    col2.metric("Historical Average", f"{cohort_avg_risk:.1f}%")
-
-    averages = module_numeric_averages(all_cases, selected)
-    numeric_current = {k: float(v) for k, v in user_inputs.items() if isinstance(v, (int, float))}
-
-    compare_rows = []
-    for key, cur_value in numeric_current.items():
-        if key in averages:
-            compare_rows.append({"Input": key, "Current": cur_value, "Historical Avg": averages[key]})
-
-    if compare_rows:
-        compare_df = pd.DataFrame(compare_rows)
-        compare_long = compare_df.melt("Input", var_name="Type", value_name="Value")
-        chart = (
-            alt.Chart(compare_long)
-            .mark_bar()
-            .encode(
-                x=alt.X("Value:Q"),
-                y=alt.Y("Input:N", sort="-x"),
-                color=alt.Color("Type:N"),
-                tooltip=["Input", "Type", "Value"],
-            )
-        )
-        st.altair_chart(chart, use_container_width=True)
-        st.dataframe(compare_df, use_container_width=True)
-    else:
-        st.caption("No comparable numeric inputs available for this module yet.")
-
-
 def _render_history_panel(selected, input_schema, username):
     st.subheader("Patient Case History")
+    if st.button("Refresh history", key="refresh_history_btn"):
+        st.rerun()
+
     cases = visible_cases(load_cases(), username)
     if cases.empty:
         st.info("No saved cases yet.")
         return
 
-    filtered = cases[cases["disease_module"] == selected]
+    known_modules = {"Heart", "Diabetes", "Respiratory", "Infectious"}
+    data_modules = set(cases["disease_module"].dropna().astype(str).str.strip().tolist())
+    module_options = ["All modules"] + sorted(known_modules | data_modules)
+    default_module = selected if selected in module_options else "All modules"
+    selected_module = st.selectbox(
+        "Module filter",
+        module_options,
+        index=module_options.index(default_module),
+        key="history_module_filter",
+    )
+
+    if selected_module == "All modules":
+        filtered = cases.copy()
+    else:
+        filtered = cases[cases["disease_module"] == selected_module].copy()
+
     if filtered.empty:
-        st.info("No saved cases for this disease module.")
+        st.info("No saved cases found for the selected filter.")
         return
 
-    filtered = filtered.sort_values("timestamp", ascending=False)
-    options = { _build_case_selector_text(row): row for _, row in filtered.iterrows() }
-    chosen = st.selectbox("Select a saved case", list(options.keys()))
-    selected_row = options[chosen]
+    filtered = filtered.copy()
+    filtered["_ts_sort"] = pd.to_datetime(filtered["timestamp"], errors="coerce")
+    filtered = filtered.sort_values(["_ts_sort", "timestamp"], ascending=False)
+    st.caption(f"Total cases shown: {len(filtered)}")
+
+    case_options = {}
+    label_counts = {}
+    for _, row in filtered.iterrows():
+        case_id = str(row.get("case_id", ""))
+        base_label = _build_case_selector_text(row)
+        seen = label_counts.get(base_label, 0)
+        label_counts[base_label] = seen + 1
+        label = base_label if seen == 0 else f"{base_label} ({seen + 1})"
+        case_options[label] = case_id
+
+    chosen = st.selectbox("Select a saved case", list(case_options.keys()), key="history_case_selector")
+    selected_case_id = case_options[chosen]
+    selected_row = filtered[filtered["case_id"].astype(str) == str(selected_case_id)].iloc[0]
 
     if st.button("Load selected case into form", key="load_case_btn"):
         payload = parse_json_column(selected_row.get("inputs_json", "{}"), {})
-        for item in input_schema:
-            key = item.get("name")
-            if key in payload:
-                st.session_state[_to_widget_key(key)] = payload[key]
-        st.success("Case loaded into the current form.")
+        st.session_state["pending_case_load"] = {
+            "inputs": payload,
+            "patient_id": str(selected_row.get("patient_id", "")),
+            "patient_name": str(selected_row.get("patient_name", "")),
+            "disease_module": str(selected_row.get("disease_module", "")),
+        }
+        st.success("Case selected. Loading into form...")
         st.rerun()
 
     st.markdown("#### Saved Case Snapshot")
@@ -391,7 +379,9 @@ def _render_patient_profile(username):
         st.info("No patient cases to display.")
         return
 
-    cases = cases.sort_values("timestamp", ascending=False)
+    cases = cases.copy()
+    cases["_ts_sort"] = pd.to_datetime(cases["timestamp"], errors="coerce")
+    cases = cases.sort_values(["_ts_sort", "timestamp"], ascending=False)
     unique_patients = (
         cases[["patient_id", "patient_name"]]
         .fillna("")
@@ -466,7 +456,7 @@ def _render_patient_profile(username):
 
 
 st.set_page_config(page_title="Medical Diagnosis", layout="wide")
-st.markdown("<h1 style='text-align: center;'>Multi-Disease Fuzzy Expert System</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>Multi-Disease Fuzzy Decision Support System</h1>", unsafe_allow_html=True)
 
 user = require_authentication()
 
@@ -476,6 +466,22 @@ modules = {
     "Respiratory": respiratory,
     "Infectious": infectious,
 }
+
+pending_case_load = st.session_state.pop("pending_case_load", None)
+if isinstance(pending_case_load, dict):
+    pending_module = str(pending_case_load.get("disease_module", "")).strip()
+    if pending_module in modules:
+        st.session_state["selected_module"] = pending_module
+
+    pending_patient_id = str(pending_case_load.get("patient_id", "")).strip()
+    pending_patient_name = str(pending_case_load.get("patient_name", "")).strip()
+    st.session_state["patient_id"] = pending_patient_id
+    st.session_state["patient_name"] = pending_patient_name
+
+    pending_inputs = pending_case_load.get("inputs", {})
+    if isinstance(pending_inputs, dict):
+        for key, value in pending_inputs.items():
+            st.session_state[_to_widget_key(str(key))] = value
 
 with st.sidebar:
     page = st.radio("Navigation", ["Diagnosis", "Patient Profile"])
@@ -488,11 +494,10 @@ else:
     input_schema = _normalize_inputs(module.get_inputs())
     _validate_inputs(input_schema)
 
-    diagnosis_tab, explanation_tab, impact_tab, comparison_tab, history_tab = st.tabs([
+    diagnosis_tab, explanation_tab, impact_tab, history_tab = st.tabs([
         "Diagnosis",
         "Explanation",
         "Input Impact",
-        "Comparison",
         "Case History",
     ])
 
@@ -655,9 +660,6 @@ else:
             st.dataframe(contribution_df, use_container_width=True)
         else:
             st.info("Enter inputs in the Diagnosis tab to see contribution details here.")
-
-    with comparison_tab:
-        _render_comparison(selected, st.session_state.get("last_user_inputs", user_inputs), load_cases())
 
     with history_tab:
         _render_history_panel(selected, input_schema, user["username"])
