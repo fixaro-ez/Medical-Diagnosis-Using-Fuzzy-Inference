@@ -20,10 +20,27 @@ from modules.diabetes import engine as diabetes
 from modules.heart import engine as heart
 from modules.infectious import engine as infectious
 from modules.respiratory import engine as respiratory
+from modules.recommender.engine import SymptomRecommender
+from modules.reporting import generate_pdf_report
 
 
 def _label_with_unit(label, unit):
     return f"{label} ({unit})" if unit else label
+
+
+def _parse_age_range(value):
+    """Convert an age range string like '26-35' to its midpoint float."""
+    if isinstance(value, str) and "-" in value:
+        parts = value.split("-")
+        try:
+            low, high = float(parts[0]), float(parts[1])
+            return (low + high) / 2.0
+        except (ValueError, IndexError):
+            return 30.0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 30.0
 
 
 def _coerce_slider_value(min_value, max_value):
@@ -112,6 +129,11 @@ def _normalize_inputs(inputs):
         if field_type == "selectbox":
             normalized_item["options"] = item.get("options", [])
 
+        if field_type == "toggle":
+            normalized_item["options"] = ["No", "Yes"]
+            children = item.get("children", [])
+            normalized_item["children"] = _normalize_inputs(children)
+
         normalized.append(normalized_item)
     return normalized
 
@@ -127,6 +149,22 @@ def _validate_inputs(inputs):
                 st.warning(f"Numeric input '{item.get('name', 'unknown')}' needs 'min' and 'max'.")
         if item.get("type") in {"selectbox", "select"} and "options" not in item:
             st.warning(f"Selectbox '{item.get('name', 'unknown')}' needs 'options'.")
+        if item.get("type") == "toggle":
+            for child in item.get("children", []):
+                _validate_inputs([child])
+
+
+def _flatten_schema(input_schema):
+    """Flatten schema including children from toggle items, for downstream functions."""
+    flat = []
+    for item in input_schema:
+        if item.get("type") == "toggle":
+            flat.append(item)
+            for child in item.get("children", []):
+                flat.append(child)
+        else:
+            flat.append(item)
+    return flat
 
 
 def _membership_curves(min_value, max_value):
@@ -195,6 +233,8 @@ def _membership_degrees(min_value, max_value, value):
 def _input_contributions(user_inputs, input_schema):
     contributions = []
     for item in input_schema:
+        if item.get("type") == "toggle":
+            continue
         name = item.get("name")
         label = _label_with_unit(item.get("label", ""), item.get("unit", ""))
         value = user_inputs.get(name)
@@ -263,14 +303,9 @@ def _render_result_block(selected, result, input_schema, user_inputs):
     st.caption(result.get("reasoning", ""))
 
     contribution_df = _input_contributions(user_inputs, input_schema)
-    if not result.get("plain_summary"):
-        result["plain_summary"] = _default_plain_summary(selected, result, contribution_df)
 
     if not result.get("rule_trace"):
         result["rule_trace"] = _default_rule_trace(user_inputs, input_schema, result.get("risk_level", "medium"))
-
-    st.markdown("#### Plain-Language Summary")
-    st.info(result.get("plain_summary", "No summary generated."))
 
     trace_df = pd.DataFrame(result.get("rule_trace", []))
     if not trace_df.empty:
@@ -292,14 +327,28 @@ def _render_result_block(selected, result, input_schema, user_inputs):
         ).sort_values("Probability (%)", ascending=False)
         dist_chart = (
             alt.Chart(score_df)
-            .mark_arc(innerRadius=50)
+            .mark_bar(cornerRadiusEnd=4)
             .encode(
-                theta=alt.Theta("Probability (%):Q"),
-                color=alt.Color("Condition:N", legend=alt.Legend(title="Condition")),
-                tooltip=["Condition", "Probability (%)"],
+                x=alt.X("Probability (%):Q", title="Probability (%)", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y("Condition:N", sort="-x", title="Condition"),
+                color=alt.Color("Condition:N", legend=None),
+                tooltip=[
+                    alt.Tooltip("Condition:N", title="Condition"),
+                    alt.Tooltip("Probability (%):Q", title="Probability", format=".1f"),
+                ],
             )
         )
-        st.altair_chart(dist_chart, use_container_width=True)
+        # Add text labels on bars
+        dist_text = (
+            alt.Chart(score_df)
+            .mark_text(align="left", dx=4, fontSize=12)
+            .encode(
+                x=alt.X("Probability (%):Q"),
+                y=alt.Y("Condition:N", sort="-x"),
+                text=alt.Text("Probability (%):Q", format=".1f"),
+            )
+        )
+        st.altair_chart(dist_chart + dist_text, use_container_width=True)
         st.dataframe(score_df, use_container_width=True)
 
     if result.get("red_flag"):
@@ -337,7 +386,7 @@ def _render_history_panel(selected, input_schema, username):
         return
 
     filtered = filtered.copy()
-    filtered["_ts_sort"] = pd.to_datetime(filtered["timestamp"], errors="coerce")
+    filtered["_ts_sort"] = pd.to_datetime(filtered["timestamp"], format="mixed", errors="coerce")
     filtered = filtered.sort_values(["_ts_sort", "timestamp"], ascending=False)
     st.caption(f"Total cases shown: {len(filtered)}")
 
@@ -380,7 +429,7 @@ def _render_patient_profile(username):
         return
 
     cases = cases.copy()
-    cases["_ts_sort"] = pd.to_datetime(cases["timestamp"], errors="coerce")
+    cases["_ts_sort"] = pd.to_datetime(cases["timestamp"], format="mixed", errors="coerce")
     cases = cases.sort_values(["_ts_sort", "timestamp"], ascending=False)
     unique_patients = (
         cases[["patient_id", "patient_name"]]
@@ -426,11 +475,201 @@ def _render_patient_profile(username):
     st.write(f"Patient Name: {display_name}")
     st.write(f"Patient ID: {selected_patient_id or 'Not provided'}")
 
-    timeline = patient_cases[["timestamp", "disease_module", "risk_level", "risk_percentage", "doctor_name"]].copy()
-    timeline["timestamp"] = timeline["timestamp"].map(_format_timestamp)
-    st.markdown("#### Diagnosis History")
-    st.dataframe(timeline, use_container_width=True)
+    # ── Chronological Patient Timeline ──────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### Chronological Patient Timeline")
 
+    # Build timeline data with parsed timestamps
+    tl = patient_cases.copy()
+    tl["_dt"] = pd.to_datetime(tl["timestamp"], format="mixed", errors="coerce")
+    tl = tl.dropna(subset=["_dt"]).sort_values("_dt")
+
+    if tl.empty:
+        st.info("No timestamped records to display on the timeline.")
+    else:
+        # ── Disease Module Filter ───────────────────────────────────────
+        modules_in_data = sorted(tl["disease_module"].dropna().astype(str).unique().tolist())
+        module_filter_options = ["All Modules"] + modules_in_data
+        module_filter = st.selectbox(
+            "Filter timeline by disease",
+            module_filter_options,
+            key="timeline_module_filter",
+        )
+        tl_filtered = tl if module_filter == "All Modules" else tl[tl["disease_module"] == module_filter]
+
+        # ── 1) Risk Trend Chart ─────────────────────────────────────────
+        st.markdown("##### Risk Score Trend")
+        risk_tl = tl_filtered[["_dt", "disease_module", "risk_percentage"]].copy()
+        risk_tl["risk_percentage"] = pd.to_numeric(risk_tl["risk_percentage"], errors="coerce")
+        risk_tl = risk_tl.dropna(subset=["risk_percentage"])
+
+        if not risk_tl.empty:
+            risk_tl = risk_tl.reset_index(drop=True)
+            risk_tl = risk_tl.rename(columns={
+                "_dt": "Date",
+                "disease_module": "Module",
+                "risk_percentage": "Risk",
+            })
+            # Format date as readable label for the x-axis
+            risk_tl["Visit"] = risk_tl["Date"].dt.strftime("%d %b %Y, %I:%M %p")
+            # Preserve chronological order
+            visit_order = risk_tl["Visit"].tolist()
+
+            # Add threshold rows into the same dataframe so no cross-dataset layering
+            risk_tl["Low_Med"] = 35
+            risk_tl["Med_High"] = 65
+
+            bars = (
+                alt.Chart(risk_tl)
+                .mark_bar(cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X("Visit:N", title="Date", sort=visit_order,
+                            axis=alt.Axis(labelAngle=-35)),
+                    y=alt.Y("Risk:Q", scale=alt.Scale(domain=[0, 100]), title="Risk %"),
+                    color=alt.Color("Module:N", title="Disease Module"),
+                    tooltip=[
+                        alt.Tooltip("Visit:N", title="Date"),
+                        alt.Tooltip("Module:N", title="Module"),
+                        alt.Tooltip("Risk:Q", title="Risk %", format=".1f"),
+                    ],
+                )
+            )
+            # Value labels on top of each bar
+            bar_text = (
+                alt.Chart(risk_tl)
+                .mark_text(dy=-8, fontSize=12, fontWeight="bold")
+                .encode(
+                    x=alt.X("Visit:N", sort=visit_order),
+                    y=alt.Y("Risk:Q"),
+                    text=alt.Text("Risk:Q", format=".1f"),
+                )
+            )
+            # Threshold lines from the same dataset (avoids cross-data color conflicts)
+            rule_low = (
+                alt.Chart(risk_tl)
+                .mark_rule(color="#f39c12", strokeDash=[5, 5], opacity=0.6, strokeWidth=1.5)
+                .encode(y="Low_Med:Q")
+            )
+            rule_high = (
+                alt.Chart(risk_tl)
+                .mark_rule(color="#e74c3c", strokeDash=[5, 5], opacity=0.6, strokeWidth=1.5)
+                .encode(y="Med_High:Q")
+            )
+            st.altair_chart(bars + bar_text + rule_low + rule_high, use_container_width=True)
+        else:
+            st.caption("No risk scores available for charting.")
+
+        # ── 2) Key Metric Trends ────────────────────────────────────────
+        # Extract numeric inputs from each case and plot trends
+        metric_rows = []
+        for _, case_row in tl_filtered.iterrows():
+            dt = case_row["_dt"]
+            module = str(case_row.get("disease_module", ""))
+            payload = parse_json_column(case_row.get("inputs_json", "{}"), {})
+            for k, v in payload.items():
+                try:
+                    numeric_v = float(v)
+                except (ValueError, TypeError):
+                    continue
+                # Skip toggle flags and age ranges
+                if k.startswith("is_") or k.startswith("has_") or k.startswith("exercises_") or k.startswith("had_"):
+                    continue
+                if k == "age":
+                    continue
+                metric_rows.append({
+                    "Date": dt,
+                    "Module": module,
+                    "Metric": k.replace("_", " ").title(),
+                    "Value": numeric_v,
+                })
+
+        if metric_rows:
+            metric_df = pd.DataFrame(metric_rows)
+            available_metrics = sorted(metric_df["Metric"].unique().tolist())
+            st.markdown("##### Input Metric Trends")
+            st.caption("Select metrics to see how individual measurements changed over time.")
+            selected_metrics = st.multiselect(
+                "Metrics to plot",
+                available_metrics,
+                default=available_metrics[:3],
+                key="timeline_metric_select",
+            )
+            if selected_metrics:
+                filtered_metrics = metric_df[metric_df["Metric"].isin(selected_metrics)].copy()
+                # Format date as readable label for x-axis
+                filtered_metrics["Visit"] = filtered_metrics["Date"].dt.strftime("%d %b %Y, %I:%M %p")
+                metric_visit_order = (
+                    filtered_metrics[["Date", "Visit"]]
+                    .drop_duplicates()
+                    .sort_values("Date")["Visit"]
+                    .tolist()
+                )
+                metric_chart = (
+                    alt.Chart(filtered_metrics)
+                    .mark_line(point=alt.OverlayMarkDef(size=50, filled=True))
+                    .encode(
+                        x=alt.X("Visit:N", title="Date", sort=metric_visit_order,
+                                axis=alt.Axis(labelAngle=-35)),
+                        y=alt.Y("Value:Q", title="Value"),
+                        color=alt.Color("Metric:N", title="Metric"),
+                        strokeDash=alt.StrokeDash("Module:N", title="Module"),
+                        tooltip=[
+                            alt.Tooltip("Visit:N", title="Date"),
+                            alt.Tooltip("Module:N", title="Module"),
+                            alt.Tooltip("Metric:N", title="Metric"),
+                            alt.Tooltip("Value:Q", title="Value", format=".1f"),
+                        ],
+                    )
+                )
+                st.altair_chart(metric_chart, use_container_width=True)
+
+        # ── 3) Scrollable Visit Timeline ────────────────────────────────
+        st.markdown("##### Visit History")
+        risk_colors = {"Low": "#2ecc71", "Medium": "#f39c12", "High": "#e74c3c"}
+        for _, visit in tl_filtered.iterrows():
+            dt_str = visit["_dt"].strftime("%d %b %Y, %I:%M %p")
+            module = str(visit.get("disease_module", ""))
+            risk_level = str(visit.get("risk_level", ""))
+            risk_pct = visit.get("risk_percentage", "")
+            doctor = str(visit.get("doctor_name", ""))
+            # Determine color from risk level text
+            color = "#999"
+            for level_key, level_color in risk_colors.items():
+                if level_key.lower() in risk_level.lower():
+                    color = level_color
+                    break
+            # Extract key inputs for this visit
+            visit_inputs = parse_json_column(visit.get("inputs_json", "{}"), {})
+            input_pills = ""
+            for ik, iv in visit_inputs.items():
+                if ik.startswith("is_") or ik.startswith("has_") or ik.startswith("exercises_") or ik.startswith("had_"):
+                    continue
+                if ik == "age":
+                    continue
+                try:
+                    float(iv)
+                except (ValueError, TypeError):
+                    continue
+                label = ik.replace("_", " ").title()
+                input_pills += (
+                    f'<span style="background:{color}22;color:{color};border:1px solid {color}55;'
+                    f'padding:2px 8px;border-radius:12px;margin-right:5px;margin-top:3px;'
+                    f'font-size:0.8em;display:inline-block;">{label}: {iv}</span>'
+                )
+            st.markdown(
+                f"""<div style="border-left: 4px solid {color}; padding: 10px 14px; margin-bottom: 10px;
+                background: rgba(0,0,0,0.02); border-radius: 6px;">
+                <div><strong>{dt_str}</strong> &nbsp;|&nbsp; <strong>{module}</strong> &nbsp;|&nbsp;
+                <span style="color:{color}; font-weight:bold;">{risk_level} ({risk_pct}%)</span>
+                &nbsp;|&nbsp; Dr. {doctor}</div>
+                <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">{input_pills}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("---")
+
+    # ── Individual Case Details ─────────────────────────────────────────
     options = {_build_case_selector_text(row): row for _, row in patient_cases.iterrows()}
     chosen = st.selectbox("Open a diagnosis record", list(options.keys()), key="patient_profile_case")
     row = options[chosen]
@@ -439,7 +678,6 @@ def _render_patient_profile(username):
     inputs = parse_json_column(row.get("inputs_json", "{}"), {})
     st.dataframe(pd.DataFrame([inputs]), use_container_width=True)
     st.write(f"Recommendation: {row.get('recommendation', '')}")
-    st.caption(row.get("plain_summary", ""))
 
     note_key = f"profile_note_{row.get('case_id', '')}"
     raw_note = row.get("notes", "")
@@ -456,6 +694,7 @@ def _render_patient_profile(username):
 
 
 st.set_page_config(page_title="Medical Diagnosis", layout="wide")
+
 st.markdown("<h1 style='text-align: center;'>Multi-Disease Fuzzy Decision Support System</h1>", unsafe_allow_html=True)
 
 user = require_authentication()
@@ -466,6 +705,58 @@ modules = {
     "Respiratory": respiratory,
     "Infectious": infectious,
 }
+
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=80)
+    st.title("Med-Fuzzy Logic")
+    page = st.radio("Main Menu", ["Diagnosis", "Patient Profile"])
+    
+    st.info(f"**Dr. {user['name']}**")
+    st.divider()
+    st.caption("v1.2.0 • System Online")
+
+# --- INNOVATIVE FEATURE: AI SYMPTOM CHECKER ---
+if page == "Diagnosis":
+    with st.expander("🤖 AI Symptom Checker (Describe your symptoms)", expanded=True):
+        col_ai_1, col_ai_2 = st.columns([3, 1])
+        with col_ai_1:
+            symptom_text = st.text_input("Enter symptoms (e.g., 'I feel very thirsty and tired'):", key="symptom_input")
+        
+        if symptom_text:
+            recommender = SymptomRecommender()
+            # predict() now returns a list of tuples: [('heart', 0.8), ('diabetes', 0.1)...]
+            results = recommender.predict(symptom_text)
+            
+            if results:
+                # 1. Get Top Prediction
+                top_category, top_confidence = results[0]
+                
+                # Map model output to module names (Capitalized)
+                module_map = {
+                    "diabetes": "Diabetes",
+                    "heart": "Heart",
+                    "infectious": "Infectious",
+                    "respiratory": "Respiratory"
+                }
+                mapped_top_category = module_map.get(str(top_category).lower(), str(top_category).capitalize())
+                
+                with col_ai_2:
+                    st.markdown(f"<br>", unsafe_allow_html=True) # Spacer
+                    if st.button(f"Go to {mapped_top_category} Module", type="primary"):
+                        st.session_state["selected_module"] = mapped_top_category
+                        st.rerun()
+                
+                st.info(f"**Primary Diagnosis:** detected signs of **{mapped_top_category}** (Confidence: {float(top_confidence)*100:.1f}%)")
+                
+                # 2. Show Differential Diagnosis
+                if len(results) > 1:
+                    with st.expander("View Differential Diagnosis (Other Possibilities)"):
+                        st.markdown("**Alternative possibilities based on symptoms:**")
+                        for cat, conf in results[1:]:
+                            mapped_alt = module_map.get(str(cat).lower(), str(cat).capitalize())
+                            st.write(f"- **{mapped_alt}**: {float(conf)*100:.1f}% probability")
+            else:
+                 st.warning("Could not predict a category. Try describing more symptoms.")
 
 pending_case_load = st.session_state.pop("pending_case_load", None)
 if isinstance(pending_case_load, dict):
@@ -482,9 +773,6 @@ if isinstance(pending_case_load, dict):
     if isinstance(pending_inputs, dict):
         for key, value in pending_inputs.items():
             st.session_state[_to_widget_key(str(key))] = value
-
-with st.sidebar:
-    page = st.radio("Navigation", ["Diagnosis", "Patient Profile"])
 
 if page == "Patient Profile":
     _render_patient_profile(user["username"])
@@ -544,26 +832,45 @@ else:
 
         user_inputs = {}
         for item in input_schema:
-            user_inputs[item["name"]] = _render_input(item)
-
-        if user_inputs:
-            summary_rows = []
-            for item in input_schema:
-                summary_rows.append(
-                    {
-                        "Input": _label_with_unit(item.get("label", ""), item.get("unit", "")),
-                        "Value": user_inputs.get(item.get("name")),
-                    }
+            if item.get("type") == "toggle":
+                toggle_name = item["name"]
+                toggle_label = item.get("label", toggle_name)
+                help_text = item.get("help", "")
+                widget_key = _to_widget_key(toggle_name)
+                if widget_key not in st.session_state:
+                    st.session_state[widget_key] = "No"
+                toggle_val = st.selectbox(
+                    toggle_label,
+                    ["No", "Yes"],
+                    key=widget_key,
+                    help=help_text,
                 )
-            with st.sidebar:
-                st.markdown("#### Input Summary")
-                st.table(pd.DataFrame(summary_rows))
+                user_inputs[toggle_name] = toggle_val
+                children = item.get("children", [])
+                if toggle_val == "Yes":
+                    with st.container():
+                        for child in children:
+                            user_inputs[child["name"]] = _render_input(child)
+                else:
+                    for child in children:
+                        default_val = child.get("min", 0)
+                        if child.get("type") == "slider" or child.get("type") == "number":
+                            default_val = child.get("min", 0)
+                        user_inputs[child["name"]] = default_val
+            else:
+                user_inputs[item["name"]] = _render_input(item)
+
+
+        flat_schema = _flatten_schema(input_schema)
 
         if st.button("Diagnose", key="diagnose_btn"):
-            result = module.run_inference(user_inputs)
+            inference_inputs = dict(user_inputs)
+            if "age" in inference_inputs:
+                inference_inputs["age"] = _parse_age_range(inference_inputs["age"])
+            result = module.run_inference(inference_inputs)
             st.session_state["last_result"] = result
             st.session_state["last_user_inputs"] = user_inputs
-            st.session_state["last_schema"] = input_schema
+            st.session_state["last_schema"] = flat_schema
             st.session_state["last_selected"] = selected
 
         if "last_result" in st.session_state and st.session_state.get("last_selected") == selected:
@@ -574,23 +881,50 @@ else:
                 st.session_state["last_user_inputs"],
             )
 
-            st.markdown("#### Save Patient Session")
+            st.markdown("#### Save & Report")
             notes = st.text_area("Doctor Notes", key="save_case_notes")
-            if st.button("Save Case", key="save_case_btn"):
-                if not patient_id.strip() and not patient_name.strip():
-                    st.error("Enter at least Patient ID or Patient Name before saving.")
-                else:
-                    case_id = save_case(
-                        doctor_username=user["username"],
-                        doctor_name=user["name"],
-                        patient_id=patient_id,
-                        patient_name=patient_name,
-                        disease_module=selected,
-                        user_inputs=st.session_state["last_user_inputs"],
-                        result=st.session_state["last_result"],
-                        notes=notes,
-                    )
-                    st.success(f"Case saved successfully (ID: {case_id[:8]}...).")
+            
+            col_save, col_report = st.columns([1, 1])
+            
+            with col_save:
+                if st.button("Save Case", key="save_case_btn"):
+                    if not patient_id.strip() and not patient_name.strip():
+                        st.error("Enter at least Patient ID or Patient Name before saving.")
+                    else:
+                        case_id = save_case(
+                            doctor_username=user["username"],
+                            doctor_name=user["name"],
+                            patient_id=patient_id,
+                            patient_name=patient_name,
+                            disease_module=selected,
+                            user_inputs=st.session_state["last_user_inputs"],
+                            result=st.session_state["last_result"],
+                            notes=notes,
+                        )
+                        st.success(f"Case saved successfully (ID: {case_id[:8]}...).")
+
+            with col_report:
+                if (patient_name or patient_id) and st.session_state.get("last_result"):
+                    try:
+                        pdf_bytes = generate_pdf_report(
+                            patient_name=patient_name,
+                            patient_id=patient_id,
+                            disease_module=selected,
+                            inputs=st.session_state["last_user_inputs"],
+                            result=st.session_state["last_result"],
+                            doctor_name=user["name"],
+                            notes=notes
+                        )
+                        st.download_button(
+                            label="📄 Download Medical Report (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"Report_{patient_name}_{selected}.pdf",
+                            mime="application/pdf"
+                        )
+                    except Exception as e:
+                        st.warning(f"Report generation unavailable: {e}")
+
+
 
     with explanation_tab:
         st.subheader("How the Fuzzy System Works")
@@ -606,7 +940,7 @@ else:
 
         st.markdown("#### 2) Membership Functions")
         current_inputs = st.session_state.get("last_user_inputs", user_inputs)
-        for item in input_schema:
+        for item in flat_schema:
             if item.get("type") != "slider":
                 continue
             label = _label_with_unit(item.get("label", ""), item.get("unit", ""))
@@ -627,7 +961,7 @@ else:
         last_result = st.session_state.get("last_result", {})
         trace_df = pd.DataFrame(last_result.get("rule_trace", []))
         if trace_df.empty and current_inputs:
-            trace_df = pd.DataFrame(_default_rule_trace(current_inputs, input_schema, "medium"))
+            trace_df = pd.DataFrame(_default_rule_trace(current_inputs, flat_schema, "medium"))
         if trace_df.empty:
             st.info("Run a diagnosis to see activated rules.")
         else:
@@ -646,7 +980,7 @@ else:
         )
         current_inputs = st.session_state.get("last_user_inputs", user_inputs)
         if current_inputs:
-            contribution_df = _input_contributions(current_inputs, input_schema)
+            contribution_df = _input_contributions(current_inputs, flat_schema)
             chart = (
                 alt.Chart(contribution_df)
                 .mark_bar()
@@ -662,7 +996,7 @@ else:
             st.info("Enter inputs in the Diagnosis tab to see contribution details here.")
 
     with history_tab:
-        _render_history_panel(selected, input_schema, user["username"])
+        _render_history_panel(selected, flat_schema, user["username"])
 
 
 if __name__ == "__main__":

@@ -53,67 +53,99 @@ KNOWLEDGE_BASE: Dict = {
 
 
 def get_inputs() -> List[Dict]:
-    """Symptom-severity sliders (0-10) plus patient age."""
+    """Symptom-severity sliders plus patient age, grouped with conditional toggles."""
     return [
         {
-            "type": "slider", "name": "age",
-            "label": "Patient age", "unit": "years",
-            "min": 1, "max": 100,
-            "help": "Age of the patient in years.",
+            "type": "selectbox", "name": "age",
+            "label": "Age range", "unit": "years",
+            "help": "Patient age range.",
+            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
         },
         {
-            "type": "slider", "name": "coughing",
-            "label": "Coughing severity", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "General cough severity (0 = none, 10 = severe).",
+            "type": "toggle",
+            "name": "has_cough",
+            "label": "Do you have a cough?",
+            "help": "Whether the patient currently has a cough.",
+            "children": [
+                {
+                    "type": "slider", "name": "coughing",
+                    "label": "Coughing bouts per day", "unit": "bouts",
+                    "min": 0, "max": 100,
+                    "help": "Number of coughing fits per day.",
+                },
+                {
+                    "type": "slider", "name": "persistent_cough",
+                    "label": "Weeks with persistent cough", "unit": "weeks",
+                    "min": 0, "max": 52,
+                    "help": "Number of weeks the cough has persisted.",
+                },
+            ],
         },
         {
-            "type": "slider", "name": "persistent_cough",
-            "label": "Persistent cough (>3 weeks)", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "A cough lasting more than three weeks (0 = none, 10 = severe).",
+            "type": "toggle",
+            "name": "has_breathing_issues",
+            "label": "Do you have breathing difficulties?",
+            "help": "Whether the patient experiences shortness of breath, wheezing, or chest tightness.",
+            "children": [
+                {
+                    "type": "slider", "name": "shortness_of_breath",
+                    "label": "Breathlessness episodes per day", "unit": "episodes",
+                    "min": 0, "max": 20,
+                    "help": "Number of times experiencing difficulty breathing per day.",
+                },
+                {
+                    "type": "slider", "name": "wheezing",
+                    "label": "Wheezing episodes per day", "unit": "episodes",
+                    "min": 0, "max": 20,
+                    "help": "Number of whistling sound episodes while breathing per day.",
+                },
+                {
+                    "type": "slider", "name": "chest_tightness",
+                    "label": "Chest tightness episodes per day", "unit": "episodes",
+                    "min": 0, "max": 20,
+                    "help": "Number of chest tightness or pressure episodes per day.",
+                },
+            ],
         },
         {
-            "type": "slider", "name": "shortness_of_breath",
-            "label": "Shortness of breath", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Difficulty breathing (0 = none, 10 = severe).",
+            "type": "toggle",
+            "name": "has_fever",
+            "label": "Do you have a fever?",
+            "help": "Whether the patient has an elevated temperature.",
+            "children": [
+                {
+                    "type": "slider", "name": "fever",
+                    "label": "Fever temperature", "unit": "°C",
+                    "min": 36.0, "max": 41.0,
+                    "help": "Current body temperature in Celsius.",
+                },
+                {
+                    "type": "slider", "name": "chills",
+                    "label": "Chills episodes per day", "unit": "episodes",
+                    "min": 0, "max": 10,
+                    "help": "Number of chills / shivering episodes per day.",
+                },
+            ],
         },
         {
-            "type": "slider", "name": "wheezing",
-            "label": "Wheezing", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Whistling sound while breathing (0 = none, 10 = severe).",
-        },
-        {
-            "type": "slider", "name": "chest_tightness",
-            "label": "Chest tightness", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Tightness or pressure in the chest (0 = none, 10 = severe).",
-        },
-        {
-            "type": "slider", "name": "fever",
-            "label": "Fever", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Fever intensity (0 = none, 10 = very high).",
-        },
-        {
-            "type": "slider", "name": "chills",
-            "label": "Chills", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Chills / shivering (0 = none, 10 = severe).",
-        },
-        {
-            "type": "slider", "name": "night_sweats",
-            "label": "Night sweats", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Night sweats intensity (0 = none, 10 = severe).",
-        },
-        {
-            "type": "slider", "name": "weight_loss",
-            "label": "Unintentional weight loss", "unit": "score",
-            "min": 0, "max": 10,
-            "help": "Unexplained weight loss (0 = none, 10 = significant).",
+            "type": "toggle",
+            "name": "has_systemic_symptoms",
+            "label": "Night sweats or unexplained weight loss?",
+            "help": "Whether the patient has night sweats or unexplained weight loss.",
+            "children": [
+                {
+                    "type": "slider", "name": "night_sweats",
+                    "label": "Night sweats episodes per week", "unit": "episodes",
+                    "min": 0, "max": 7,
+                    "help": "Number of night sweats episodes per week.",
+                },
+                {
+                    "type": "slider", "name": "weight_loss",
+                    "label": "Unintentional weight loss", "unit": "kg",
+                    "min": 0, "max": 30,
+                    "help": "Unexplained weight loss in kg over the last month.",
+                },
+            ],
         },
     ]
 
@@ -129,13 +161,19 @@ _HIGH_MF = fuzz.trapmf(_SEVERITY_UNIVERSE, [7, 8.5, 10, 10])
 _SEVERITY_VALUES = {"None": 0.0, "Low": 0.33, "Medium": 0.66, "High": 1.0}
 
 
-def _defuzzify_severity(value: float) -> float:
-    """Convert a 0-10 slider value to a 0-1 severity via fuzzy membership."""
+def _defuzzify_severity(value: float, max_val: float) -> float:
+    """Convert a raw value to a 0-1 severity via fuzzy membership."""
+    universe = np.linspace(0, max_val, 101)
+    none_mf = fuzz.trapmf(universe, [0, 0, max_val*0.05, max_val*0.2])
+    low_mf = fuzz.trimf(universe, [max_val*0.1, max_val*0.3, max_val*0.5])
+    med_mf = fuzz.trimf(universe, [max_val*0.4, max_val*0.6, max_val*0.8])
+    high_mf = fuzz.trapmf(universe, [max_val*0.7, max_val*0.85, max_val, max_val])
+
     memberships = {
-        "None": float(fuzz.interp_membership(_SEVERITY_UNIVERSE, _NONE_MF, value)),
-        "Low": float(fuzz.interp_membership(_SEVERITY_UNIVERSE, _LOW_MF, value)),
-        "Medium": float(fuzz.interp_membership(_SEVERITY_UNIVERSE, _MED_MF, value)),
-        "High": float(fuzz.interp_membership(_SEVERITY_UNIVERSE, _HIGH_MF, value)),
+        "None": float(fuzz.interp_membership(universe, none_mf, value)),
+        "Low": float(fuzz.interp_membership(universe, low_mf, value)),
+        "Medium": float(fuzz.interp_membership(universe, med_mf, value)),
+        "High": float(fuzz.interp_membership(universe, high_mf, value)),
     }
     total = sum(memberships.values())
     if total == 0:
@@ -166,6 +204,18 @@ def _gaussian_age_membership(x: float, mean: float, std: float) -> float:
 def _fuzzy_disease_inference(age: float, symptom_scores: Dict[str, float]) -> List[Dict]:
     """Run disease-specific fuzzy inference for Asthma, TB, and Pneumonia."""
     results: List[Dict] = []
+    
+    max_vals = {
+        "coughing": 100.0,
+        "persistent_cough": 52.0,
+        "shortness_of_breath": 20.0,
+        "wheezing": 20.0,
+        "chest_tightness": 20.0,
+        "fever": 41.0,
+        "chills": 10.0,
+        "night_sweats": 7.0,
+        "weight_loss": 30.0,
+    }
 
     for disease_name, data in KNOWLEDGE_BASE["diseases"].items():
         raw_score = 0.0
@@ -173,7 +223,13 @@ def _fuzzy_disease_inference(age: float, symptom_scores: Dict[str, float]) -> Li
         matched_symptoms: List[str] = []
 
         for symptom, weight in data["weights"].items():
-            sev = _defuzzify_severity(symptom_scores.get(symptom, 0.0))
+            val = symptom_scores.get(symptom, 0.0)
+            if symptom == "fever":
+                val = max(0.0, val - 36.0)
+                max_val = 5.0
+            else:
+                max_val = max_vals.get(symptom, 10.0)
+            sev = _defuzzify_severity(val, max_val)
             raw_score += weight * sev
             max_weight += weight
             if sev > 0.1:
@@ -266,8 +322,27 @@ def run_inference(user_data: Dict) -> Dict:
 
     top_weights = KNOWLEDGE_BASE["diseases"][top["disease"]]["weights"]
     driver_rows = []
+    
+    max_vals = {
+        "coughing": 100.0,
+        "persistent_cough": 52.0,
+        "shortness_of_breath": 20.0,
+        "wheezing": 20.0,
+        "chest_tightness": 20.0,
+        "fever": 41.0,
+        "chills": 10.0,
+        "night_sweats": 7.0,
+        "weight_loss": 30.0,
+    }
+
     for symptom, weight in top_weights.items():
-        severity = _defuzzify_severity(symptom_scores.get(symptom, 0.0))
+        val = symptom_scores.get(symptom, 0.0)
+        if symptom == "fever":
+            val = max(0.0, val - 36.0)
+            max_val = 5.0
+        else:
+            max_val = max_vals.get(symptom, 10.0)
+        severity = _defuzzify_severity(val, max_val)
         strength = float(weight * severity)
         if strength > 0:
             driver_rows.append(

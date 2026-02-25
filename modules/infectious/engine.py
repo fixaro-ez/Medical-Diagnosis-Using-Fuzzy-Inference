@@ -60,14 +60,12 @@ def get_inputs():
     """
     return [
         {
-            "type": "slider",
+            "type": "selectbox",
             "name": "age",
-            "label": "Age",
+            "label": "Age range",
             "unit": "years",
-            "min": 0,
-            "max": 100,
-            "default": 30,
-            "help": "Patient age in years.",
+            "help": "Patient age range.",
+            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
         },
         {
             "type": "slider",
@@ -90,38 +88,86 @@ def get_inputs():
             "help": "Symptom duration in days.",
         },
         {
-            "type": "selectbox",
-            "name": "cough",
-            "label": "Cough severity",
-            "unit": "",
-            "options": LEVELS,
-            "help": "Respiratory cough intensity.",
+            "type": "toggle",
+            "name": "has_cough",
+            "label": "Do you have a cough?",
+            "help": "Whether the patient currently has a cough.",
+            "children": [
+                {
+                    "type": "slider",
+                    "name": "cough_bouts_per_day",
+                    "label": "Cough bouts per day",
+                    "unit": "bouts",
+                    "min": 0,
+                    "max": 100,
+                    "default": 0,
+                    "help": "Number of coughing fits per day.",
+                },
+            ],
         },
         {
-            "type": "selectbox",
-            "name": "diarrhea",
-            "label": "Diarrhea severity",
-            "unit": "",
-            "options": LEVELS,
-            "help": "Gastrointestinal diarrhea intensity.",
+            "type": "toggle",
+            "name": "has_diarrhea",
+            "label": "Do you have diarrhea?",
+            "help": "Whether the patient currently has diarrhea.",
+            "children": [
+                {
+                    "type": "slider",
+                    "name": "diarrhea_episodes_per_day",
+                    "label": "Diarrhea episodes per day",
+                    "unit": "episodes",
+                    "min": 0,
+                    "max": 20,
+                    "default": 0,
+                    "help": "Number of loose bowel movements per day.",
+                },
+            ],
         },
         {
-            "type": "selectbox",
-            "name": "diff_breath",
-            "label": "Breathing difficulty",
-            "unit": "",
-            "options": LEVELS,
-            "help": "Difficulty breathing severity.",
+            "type": "toggle",
+            "name": "has_breathing_difficulty",
+            "label": "Do you have breathing difficulty?",
+            "help": "Whether the patient is experiencing shortness of breath.",
+            "children": [
+                {
+                    "type": "slider",
+                    "name": "breathlessness_episodes_per_day",
+                    "label": "Breathlessness episodes per day",
+                    "unit": "episodes",
+                    "min": 0,
+                    "max": 20,
+                    "default": 0,
+                    "help": "Number of times experiencing difficulty breathing per day.",
+                },
+            ],
+        },
+        {
+            "type": "toggle",
+            "name": "had_contact_with_sick",
+            "label": "Had contact with sick people?",
+            "help": "Whether the patient had recent close contact with sick people.",
+            "children": [
+                {
+                    "type": "slider",
+                    "name": "contacts_with_sick",
+                    "label": "Contacts with sick people",
+                    "unit": "people",
+                    "min": 0,
+                    "max": 20,
+                    "default": 0,
+                    "help": "Number of people with similar symptoms you had close contact with recently.",
+                },
+            ],
         },
     ]
 
 
-def _symptom_sets(x):
-    """Fuzzy sets for 0..9 symptom scale derived from dropdown."""
-    x["none"] = fuzz.trapmf(x.universe, [0.0, 0.0, 1.0, 2.0])
-    x["mild"] = fuzz.trimf(x.universe, [1.0, 3.0, 5.0])
-    x["moderate"] = fuzz.trimf(x.universe, [4.0, 6.0, 8.0])
-    x["severe"] = fuzz.trapmf(x.universe, [7.0, 8.0, 9.0, 9.0])
+def _symptom_sets(x, max_val):
+    """Fuzzy sets for symptom scale."""
+    x["none"] = fuzz.trapmf(x.universe, [0.0, 0.0, max_val*0.1, max_val*0.2])
+    x["mild"] = fuzz.trimf(x.universe, [max_val*0.1, max_val*0.3, max_val*0.5])
+    x["moderate"] = fuzz.trimf(x.universe, [max_val*0.4, max_val*0.6, max_val*0.8])
+    x["severe"] = fuzz.trapmf(x.universe, [max_val*0.7, max_val*0.8, max_val, max_val])
 
 
 def _risk_sets(out):
@@ -149,9 +195,9 @@ def _build_sim():
     temp = ctrl.Antecedent(np.arange(35.0, 41.1, 0.1), "temp")
     duration = ctrl.Antecedent(np.arange(0.0, 14.1, 0.1), "duration")
 
-    cough = ctrl.Antecedent(np.arange(0.0, 9.1, 0.1), "cough")
-    diarrhea = ctrl.Antecedent(np.arange(0.0, 9.1, 0.1), "diarrhea")
-    diff_breath = ctrl.Antecedent(np.arange(0.0, 9.1, 0.1), "diff_breath")
+    cough = ctrl.Antecedent(np.arange(0.0, 100.1, 1.0), "cough")
+    diarrhea = ctrl.Antecedent(np.arange(0.0, 20.1, 0.1), "diarrhea")
+    diff_breath = ctrl.Antecedent(np.arange(0.0, 20.1, 0.1), "diff_breath")
 
     # ---------- Outputs ----------
     viral = ctrl.Consequent(np.arange(0.0, 100.1, 1.0), "viral")
@@ -179,9 +225,10 @@ def _build_sim():
     duration["persistent"] = fuzz.trapmf(duration.universe, [2.0, 3.0, 6.5, 7.5])
     duration["prolonged"] = fuzz.trapmf(duration.universe, [6.0, 7.0, 14.0, 14.0])
 
-    # ---------- Symptom membership (0..9) ----------
-    for s in (cough, diarrhea, diff_breath):
-        _symptom_sets(s)
+    # ---------- Symptom membership ----------
+    _symptom_sets(cough, 100.0)
+    _symptom_sets(diarrhea, 20.0)
+    _symptom_sets(diff_breath, 20.0)
 
     # ---------- Output membership ----------
     for out in (viral, flu, gastro, highrisk):
@@ -325,19 +372,13 @@ def run_inference(user_inputs: dict) -> dict:
         temp_c = min(max(float(user_inputs["temp_c"]), 35.0), 41.0)
     duration_days = min(max(float(user_inputs["duration_days"]), 0.0), 14.0)
 
-    def m(key: str) -> float:
-        v = str(user_inputs[key])
-        if v not in LEVEL_MAP:
-            raise ValueError(f"{key} must be one of {LEVELS}, got {v!r}")
-        return LEVEL_MAP[v]
-
     # Set inputs
     sim.input["age"] = age_years
     sim.input["temp"] = temp_c
     sim.input["duration"] = duration_days
-    sim.input["cough"] = m("cough")
-    sim.input["diarrhea"] = m("diarrhea")
-    sim.input["diff_breath"] = m("diff_breath")
+    sim.input["cough"] = float(user_inputs.get("cough_bouts_per_day", 0))
+    sim.input["diarrhea"] = float(user_inputs.get("diarrhea_episodes_per_day", 0))
+    sim.input["diff_breath"] = float(user_inputs.get("breathlessness_episodes_per_day", 0))
 
     sim.compute()
 
@@ -378,17 +419,17 @@ def run_inference(user_inputs: dict) -> dict:
     else:
         recommendation = "Seek urgent medical evaluation due to concerning infectious pattern."
 
-    cough_value = str(user_inputs.get("cough", "None"))
-    diarrhea_value = str(user_inputs.get("diarrhea", "None"))
-    breath_value = str(user_inputs.get("diff_breath", "None"))
+    cough_value = float(user_inputs.get("cough_bouts_per_day", 0))
+    diarrhea_value = float(user_inputs.get("diarrhea_episodes_per_day", 0))
+    breath_value = float(user_inputs.get("breathlessness_episodes_per_day", 0))
     reasoning = (
-        f"Temperature {temp_c:.1f}°C over {duration_days:.1f} day(s) with cough {cough_value}, "
-        f"diarrhea {diarrhea_value}, and breathing difficulty {breath_value} produced the highest score for {top_name}."
+        f"Temperature {temp_c:.1f}°C over {duration_days:.1f} day(s) with {cough_value} cough bouts/day, "
+        f"{diarrhea_value} diarrhea episodes/day, and {breath_value} breathlessness episodes/day produced the highest score for {top_name}."
     )
 
-    cough_strength = LEVEL_MAP.get(cough_value, 0.0) / 9.0
-    diarrhea_strength = LEVEL_MAP.get(diarrhea_value, 0.0) / 9.0
-    breath_strength = LEVEL_MAP.get(breath_value, 0.0) / 9.0
+    cough_strength = min(1.0, cough_value / 100.0)
+    diarrhea_strength = min(1.0, diarrhea_value / 20.0)
+    breath_strength = min(1.0, breath_value / 20.0)
     fever_strength = float(np.clip((temp_c - 37.0) / 3.0, 0.0, 1.0))
 
     rule_trace = [

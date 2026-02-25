@@ -7,9 +7,14 @@ from __future__ import annotations
 from modules.diabetes import engine
 
 
-def _run_case(glucose: float, bmi: float) -> None:
-    result = engine.run_inference({"glucose": glucose, "bmi": bmi})
-    print(f"glucose={glucose}, bmi={bmi} -> {result}")
+def _run_case(glucose: float, bmi: float, blood_pressure: float = 70, skin_thickness: float = 20) -> None:
+    result = engine.run_inference({
+        "glucose": glucose,
+        "bmi": bmi,
+        "blood_pressure": blood_pressure,
+        "skin_thickness": skin_thickness,
+    })
+    print(f"glucose={glucose}, bmi={bmi}, bp={blood_pressure} -> {result}")
 
 
 def main() -> None:
