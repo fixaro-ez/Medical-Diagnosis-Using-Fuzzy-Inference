@@ -59,12 +59,12 @@ def get_inputs() -> List[Dict]:
             "type": "selectbox", "name": "age",
             "label": "Age range", "unit": "years",
             "help": "Patient age range.",
-            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
+            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76+"],
         },
         {
             "type": "toggle",
             "name": "has_cough",
-            "label": "Do you have a cough?",
+            "label": "Does the patient have a cough?",
             "help": "Whether the patient currently has a cough.",
             "children": [
                 {
@@ -84,7 +84,7 @@ def get_inputs() -> List[Dict]:
         {
             "type": "toggle",
             "name": "has_breathing_issues",
-            "label": "Do you have breathing difficulties?",
+            "label": "Does the patient have breathing difficulties?",
             "help": "Whether the patient experiences shortness of breath, wheezing, or chest tightness.",
             "children": [
                 {
@@ -110,7 +110,7 @@ def get_inputs() -> List[Dict]:
         {
             "type": "toggle",
             "name": "has_fever",
-            "label": "Do you have a fever?",
+            "label": "Does the patient have a fever?",
             "help": "Whether the patient has an elevated temperature.",
             "children": [
                 {

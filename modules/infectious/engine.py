@@ -65,7 +65,7 @@ def get_inputs():
             "label": "Age range",
             "unit": "years",
             "help": "Patient age range.",
-            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
+            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76+"],
         },
         {
             "type": "slider",
@@ -90,7 +90,7 @@ def get_inputs():
         {
             "type": "toggle",
             "name": "has_cough",
-            "label": "Do you have a cough?",
+            "label": "Does the patient have a cough?",
             "help": "Whether the patient currently has a cough.",
             "children": [
                 {
@@ -108,7 +108,7 @@ def get_inputs():
         {
             "type": "toggle",
             "name": "has_diarrhea",
-            "label": "Do you have diarrhea?",
+            "label": "Does the patient have diarrhea?",
             "help": "Whether the patient currently has diarrhea.",
             "children": [
                 {
@@ -126,7 +126,7 @@ def get_inputs():
         {
             "type": "toggle",
             "name": "has_breathing_difficulty",
-            "label": "Do you have breathing difficulty?",
+            "label": "Does the patient have breathing difficulty?",
             "help": "Whether the patient is experiencing shortness of breath.",
             "children": [
                 {
@@ -144,7 +144,7 @@ def get_inputs():
         {
             "type": "toggle",
             "name": "had_contact_with_sick",
-            "label": "Had contact with sick people?",
+            "label": "Was there contact with sick people?",
             "help": "Whether the patient had recent close contact with sick people.",
             "children": [
                 {
@@ -422,8 +422,12 @@ def run_inference(user_inputs: dict) -> dict:
     cough_value = float(user_inputs.get("cough_bouts_per_day", 0))
     diarrhea_value = float(user_inputs.get("diarrhea_episodes_per_day", 0))
     breath_value = float(user_inputs.get("breathlessness_episodes_per_day", 0))
+
+    # Display temperature in the unit it was likely entered (Fahrenheit is the primary input)
+    display_temp = temp_f if "temp_f" in user_inputs else (temp_c * 9/5) + 32
+    
     reasoning = (
-        f"Temperature {temp_c:.1f}°C over {duration_days:.1f} day(s) with {cough_value} cough bouts/day, "
+        f"Temperature {display_temp:.1f}°F over {duration_days:.1f} day(s) with {cough_value} cough bouts/day, "
         f"{diarrhea_value} diarrhea episodes/day, and {breath_value} breathlessness episodes/day produced the highest score for {top_name}."
     )
 

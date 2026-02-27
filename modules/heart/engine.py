@@ -11,7 +11,7 @@ def get_inputs():
 			"label": "Age range",
 			"unit": "years",
 			"help": "Patient age range.",
-			"options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
+			"options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76+"],
 		},
 		{
 			"type": "slider",
@@ -61,7 +61,7 @@ def get_inputs():
 		{
 			"type": "toggle",
 			"name": "is_smoker",
-			"label": "Do you smoke?",
+			"label": "Does the patient smoke?",
 			"help": "Whether the patient currently smokes or has recently smoked.",
 			"children": [
 				{
@@ -78,7 +78,7 @@ def get_inputs():
 					"name": "smoking_days_per_month",
 					"label": "Smoking days per month",
 					"unit": "days",
-					"help": "How many days per month you smoke.",
+					"help": "How many days per month the patient smokes.",
 					"min": 0,
 					"max": 30,
 				},
@@ -87,7 +87,7 @@ def get_inputs():
 					"name": "days_since_last_cigarette",
 					"label": "Days since last cigarette",
 					"unit": "days",
-					"help": "How many days since your last cigarette.",
+					"help": "How many days since the patient's last cigarette.",
 					"min": 0,
 					"max": 365,
 				},
@@ -96,7 +96,7 @@ def get_inputs():
 		{
 			"type": "toggle",
 			"name": "exercises_regularly",
-			"label": "Do you exercise regularly?",
+			"label": "Does the patient exercise regularly?",
 			"help": "Whether the patient exercises on a regular basis.",
 			"children": [
 				{

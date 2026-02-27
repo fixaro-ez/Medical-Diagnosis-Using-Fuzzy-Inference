@@ -60,7 +60,7 @@ def get_inputs() -> List[Dict]:
             "label": "Age range",
             "unit": "years",
             "help": "Patient age range.",
-            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76-90"],
+            "options": ["1-17", "18-25", "26-35", "36-45", "46-55", "56-65", "66-75", "76+"],
         },
         {
             "type": "slider",

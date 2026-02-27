@@ -30,13 +30,24 @@ def _label_with_unit(label, unit):
 
 def _parse_age_range(value):
     """Convert an age range string like '26-35' to its midpoint float."""
-    if isinstance(value, str) and "-" in value:
-        parts = value.split("-")
-        try:
-            low, high = float(parts[0]), float(parts[1])
-            return (low + high) / 2.0
-        except (ValueError, IndexError):
-            return 30.0
+    if isinstance(value, str):
+        value = value.strip()
+        if "+" in value:
+            # Treat "76+" effectively as the 76-90 group (midpoint ~83)
+            try:
+                base = float(value.replace("+", "").strip())
+                return base + 7.0 
+            except ValueError:
+                return 83.0
+
+        if "-" in value:
+            parts = value.split("-")
+            try:
+                low, high = float(parts[0]), float(parts[1])
+                return (low + high) / 2.0
+            except (ValueError, IndexError):
+                return 30.0
+    
     try:
         return float(value)
     except (ValueError, TypeError):
@@ -298,9 +309,25 @@ def _build_case_selector_text(row):
 
 
 def _render_result_block(selected, result, input_schema, user_inputs):
-    st.success(f"Risk: {result['risk_level']} ({result['risk_percentage']}%)")
-    st.write(result.get("recommendation", ""))
-    st.caption(result.get("reasoning", ""))
+    st.markdown("### 📊 Diagnostic Results")
+    
+    risk_pct = result.get('risk_percentage', 0)
+    risk_level = result.get('risk_level', 'Unknown')
+    
+    # Visual Metrics using Columns
+    m1, m2, m3 = st.columns(3)
+    with m1:
+         st.metric(label="Risk Probability", value=f"{risk_pct}%", delta=f"{risk_level} Risk")
+    with m2:
+         st.metric(label="Assessed Condition", value=selected)
+    with m3:
+         confidence = "High" if risk_pct > 70 or risk_pct < 30 else "Moderate"
+         st.metric(label="Model Confidence", value=confidence)
+
+    # Detailed Recommendation
+    with st.expander("📝 View Clinical Recommendation", expanded=True):
+        st.info(f"**Recommendation:** {result.get('recommendation', 'No specific recommendation.')}")
+        st.caption(f"**Reasoning:** {result.get('reasoning', '')}")
 
     contribution_df = _input_contributions(user_inputs, input_schema)
 
@@ -706,6 +733,37 @@ modules = {
     "Infectious": infectious,
 }
 
+
+# --- CUSTOM CSS TO IMPROVE INPUT VISIBILITY ---
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&display=swap');
+
+    /* Apply serif font to headings to match the image */
+    h1, h2, h3, .css-10trblm {
+        font-family: 'Playfair Display', Georgia, 'Times New Roman', serif !important;
+        color: #1f3b4d !important; /* Dark teal/slate color from image */
+    }
+
+    /* Make input fields more visible */
+    input[type="text"], input[type="number"], .stNumberInput input {
+        background-color: #FFFFFF !important;
+        border: 1px solid #004085 !important;
+        border-radius: 5px !important;
+        color: #002752 !important;
+    }
+    /* Enhance dropdowns */
+    div[data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
+        border: 1px solid #004085 !important;
+        cursor: pointer !important;
+    }
+    div[data-baseweb="select"] * {
+        cursor: pointer !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=80)
     st.title("Med-Fuzzy Logic")
@@ -717,10 +775,10 @@ with st.sidebar:
 
 # --- INNOVATIVE FEATURE: AI SYMPTOM CHECKER ---
 if page == "Diagnosis":
-    with st.expander("🤖 AI Symptom Checker (Describe your symptoms)", expanded=True):
+    with st.expander("🤖 AI Symptom Checker (Describe patient symptoms)", expanded=True):
         col_ai_1, col_ai_2 = st.columns([3, 1])
         with col_ai_1:
-            symptom_text = st.text_input("Enter symptoms (e.g., 'I feel very thirsty and tired'):", key="symptom_input")
+            symptom_text = st.text_input("Enter symptoms (e.g., 'Patient feels very thirsty and tired'):", key="symptom_input")
         
         if symptom_text:
             recommender = SymptomRecommender()
@@ -830,40 +888,46 @@ else:
         patient_id = profile_col1.text_input("Patient ID", key="patient_id")
         patient_name = profile_col2.text_input("Patient Name", key="patient_name")
 
+        st.markdown("### Clinical Indicators")
+        # Grid Layout for Inputs
+        col1, col2 = st.columns(2)
+        
         user_inputs = {}
-        for item in input_schema:
-            if item.get("type") == "toggle":
-                toggle_name = item["name"]
-                toggle_label = item.get("label", toggle_name)
-                help_text = item.get("help", "")
-                widget_key = _to_widget_key(toggle_name)
-                if widget_key not in st.session_state:
-                    st.session_state[widget_key] = "No"
-                toggle_val = st.selectbox(
-                    toggle_label,
-                    ["No", "Yes"],
-                    key=widget_key,
-                    help=help_text,
-                )
-                user_inputs[toggle_name] = toggle_val
-                children = item.get("children", [])
-                if toggle_val == "Yes":
-                    with st.container():
+        for idx, item in enumerate(input_schema):
+            target_col = col1 if idx % 2 == 0 else col2
+            with target_col:
+                if item.get("type") == "toggle":
+                    toggle_name = item["name"]
+                    toggle_label = item.get("label", toggle_name)
+                    help_text = item.get("help", "")
+                    widget_key = _to_widget_key(toggle_name)
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = "No"
+                    toggle_val = st.selectbox(
+                        toggle_label,
+                        ["No", "Yes"],
+                        key=widget_key,
+                        help=help_text,
+                    )
+                    user_inputs[toggle_name] = toggle_val
+                    children = item.get("children", [])
+                    if toggle_val == "Yes":
                         for child in children:
                             user_inputs[child["name"]] = _render_input(child)
-                else:
-                    for child in children:
-                        default_val = child.get("min", 0)
-                        if child.get("type") == "slider" or child.get("type") == "number":
+                    else:
+                        for child in children:
                             default_val = child.get("min", 0)
-                        user_inputs[child["name"]] = default_val
-            else:
-                user_inputs[item["name"]] = _render_input(item)
+                            if child.get("type") == "slider" or child.get("type") == "number":
+                                default_val = child.get("min", 0)
+                            user_inputs[child["name"]] = default_val
+                else:
+                    user_inputs[item["name"]] = _render_input(item)
 
 
         flat_schema = _flatten_schema(input_schema)
 
-        if st.button("Diagnose", key="diagnose_btn"):
+        st.markdown("---")
+        if st.button("🚀 Run Diagnosis", key="diagnose_btn", type="primary", use_container_width=True):
             inference_inputs = dict(user_inputs)
             if "age" in inference_inputs:
                 inference_inputs["age"] = _parse_age_range(inference_inputs["age"])
