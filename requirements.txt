@@ -1,5 +1,5 @@
 # Core dependencies
-streamlit>=1.30.0
+streamlit>=1.37.0
 scikit-fuzzy>=0.5.0
 pandas>=2.0.0
 numpy>=1.24.0
@@ -10,3 +10,10 @@ PyYAML>=6.0.1
 # Required by scikit-fuzzy
 scipy>=1.10.0
 networkx>=3.0
+
+# NLP & Machine Learning (For Recommender)
+scikit-learn>=1.3.0
+nltk>=3.8.0
+
+# Reporting
+fpdf>=1.7.2
